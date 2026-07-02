@@ -159,10 +159,14 @@ def get_previous_event_features(events_df):
 
 
 def create_xg_features(events_df):
-    """Convert raw StatsBomb events into a shot-level xG modelling DataFrame.
+    """Convert StatsBomb events into a shot-level xG modelling DataFrame.
 
-    Input: DataFrame with columns match_id, type/type_name, team/team_name,
-           location, shot, minute, period, and optionally under_pressure.
+    Accepts two input formats:
+    - statsbombpy (default): shot attributes in flat columns (shot_outcome,
+      shot_body_part, shot_freeze_frame, etc.); type and team as strings.
+    - Raw JSON: shot attributes in a single nested 'shot' dict column;
+      type and team as {"id": ..., "name": ...} dicts.
+
     Output: one row per shot with engineered features and binary is_goal target.
     """
     df = events_df.copy()
@@ -181,19 +185,29 @@ def create_xg_features(events_df):
     shots = df[df["type_name"] == "Shot"].copy()
 
     # --- Shot metadata ---
-    def shot_field(field):
-        return shots["shot"].apply(
-            lambda x: safe_get_nested_value(x.get(field), "name") if isinstance(x, dict) else np.nan
+    # statsbombpy returns a flat DataFrame where shot attributes are already in
+    # their own columns (shot_outcome, shot_body_part, etc.).  Raw JSON has a
+    # single nested 'shot' dict column.  Detect the format and normalise.
+    if "shot" in shots.columns:
+        def _shot_field(field):
+            return shots["shot"].apply(
+                lambda x: safe_get_nested_value(x.get(field), "name") if isinstance(x, dict) else np.nan
+            )
+        shots["shot_outcome"]      = _shot_field("outcome")
+        shots["shot_body_part"]    = _shot_field("body_part")
+        shots["shot_type"]         = _shot_field("type")
+        shots["shot_technique"]    = _shot_field("technique")
+        shots["shot_first_time"]   = shots["shot"].apply(
+            lambda x: int(bool(x.get("first_time", False))) if isinstance(x, dict) else 0
         )
+        shots["shot_freeze_frame"] = shots["shot"].apply(
+            lambda x: x.get("freeze_frame") if isinstance(x, dict) else np.nan
+        )
+    # else: statsbombpy flat format — shot_outcome, shot_body_part, shot_type,
+    #       shot_technique, shot_first_time, shot_freeze_frame already exist.
 
-    shots["shot_outcome"] = shot_field("outcome")
     shots["is_goal"] = (shots["shot_outcome"] == "Goal").astype(int)
-    shots["shot_body_part"] = shot_field("body_part")
-    shots["shot_type"] = shot_field("type")
-    shots["shot_technique"] = shot_field("technique")
-    shots["shot_first_time"] = shots["shot"].apply(
-        lambda x: int(bool(x.get("first_time", False))) if isinstance(x, dict) else 0
-    )
+    shots["shot_first_time"] = shots["shot_first_time"].fillna(False).astype(bool).astype(int)
     shots["shot_under_pressure"] = (
         shots["under_pressure"].fillna(False).astype(int)
         if "under_pressure" in shots.columns else 0
@@ -218,9 +232,6 @@ def create_xg_features(events_df):
     ).astype(int)
 
     # --- Freeze-frame features ---
-    shots["shot_freeze_frame"] = shots["shot"].apply(
-        lambda x: x.get("freeze_frame") if isinstance(x, dict) else np.nan
-    )
     freeze_features_df = pd.DataFrame(
         list(shots.apply(
             lambda row: extract_freeze_frame_features(row["shot_freeze_frame"], row["location"]),
