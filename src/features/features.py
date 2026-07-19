@@ -185,26 +185,28 @@ def create_xg_features(events_df):
     shots = df[df["type_name"] == "Shot"].copy()
 
     # --- Shot metadata ---
-    # statsbombpy returns a flat DataFrame where shot attributes are already in
-    # their own columns (shot_outcome, shot_body_part, etc.).  Raw JSON has a
-    # single nested 'shot' dict column.  Detect the format and normalise.
-    if "shot" in shots.columns:
-        def _shot_field(field):
-            return shots["shot"].apply(
-                lambda x: safe_get_nested_value(x.get(field), "name") if isinstance(x, dict) else np.nan
-            )
-        shots["shot_outcome"]      = _shot_field("outcome")
-        shots["shot_body_part"]    = _shot_field("body_part")
-        shots["shot_type"]         = _shot_field("type")
-        shots["shot_technique"]    = _shot_field("technique")
-        shots["shot_first_time"]   = shots["shot"].apply(
+    # statsbombpy returns a flat DataFrame (shot_outcome, shot_body_part, etc.
+    # are already top-level columns).  Raw JSON wraps everything in a nested
+    # 'shot' dict.  Detect by checking for the expected output column.
+    if "shot_outcome" not in shots.columns:
+        shots["shot_outcome"] = shots["shot"].apply(
+            lambda x: safe_get_nested_value(x.get("outcome"), "name") if isinstance(x, dict) else np.nan
+        )
+        shots["shot_body_part"] = shots["shot"].apply(
+            lambda x: safe_get_nested_value(x.get("body_part"), "name") if isinstance(x, dict) else np.nan
+        )
+        shots["shot_type"] = shots["shot"].apply(
+            lambda x: safe_get_nested_value(x.get("type"), "name") if isinstance(x, dict) else np.nan
+        )
+        shots["shot_technique"] = shots["shot"].apply(
+            lambda x: safe_get_nested_value(x.get("technique"), "name") if isinstance(x, dict) else np.nan
+        )
+        shots["shot_first_time"] = shots["shot"].apply(
             lambda x: int(bool(x.get("first_time", False))) if isinstance(x, dict) else 0
         )
         shots["shot_freeze_frame"] = shots["shot"].apply(
             lambda x: x.get("freeze_frame") if isinstance(x, dict) else np.nan
         )
-    # else: statsbombpy flat format — shot_outcome, shot_body_part, shot_type,
-    #       shot_technique, shot_first_time, shot_freeze_frame already exist.
 
     shots["is_goal"] = (shots["shot_outcome"] == "Goal").astype(int)
     shots["shot_first_time"] = shots["shot_first_time"].fillna(False).astype(bool).astype(int)
