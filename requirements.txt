@@ -1,0 +1,12 @@
+numpy==2.4.6
+pandas==3.0.3
+scikit-learn==1.9.0
+xgboost==3.2.0
+statsbombpy==1.19.0
+mplsoccer==1.6.1
+matplotlib==3.11.0
+seaborn==0.13.2
+optuna==4.9.0
+shap==0.51.0
+joblib==1.4.2
+jupyter
